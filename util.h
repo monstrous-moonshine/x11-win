@@ -45,13 +45,13 @@ struct x_screen {
     uint8_t  backing_stores;
     uint8_t  save_unders;
     uint8_t  root_depth;
-    uint8_t  num_allowed_depth;
-    struct x_depth *allowed_depths;
+    uint8_t  num_depth;
+    struct x_depth *depths;
 } __attribute__((packed));
 
 struct x_header {
     uint8_t status;
-    uint8_t pad_1[1];
+    uint8_t reason_len;
     uint16_t version_major;
     uint16_t version_minor;
     uint16_t length;

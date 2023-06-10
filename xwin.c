@@ -5,14 +5,14 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <X11/X.h>
+#include <X11/Xproto.h>
+#include <X11/Xauth.h>
 #include "util.h"
 
 #define X_CONNECTION_FAIL 0
 #define X_CONNECTION_OKAY 1
 #define X_CONNECTION_AUTH 2
-
-/* from X11/Xauth.h */
-#define FamilyLocal 256
 
 void die(const char *msg) {
     perror(msg);
@@ -26,10 +26,10 @@ void free_x_header(struct x_header *x_conn) {
         free(x_conn->pass.vendor);
         free(x_conn->pass.pixmap_formats);
         for (uint8_t i = 0; i < x_conn->pass.num_screen; i++) {
-            for (uint8_t j = 0; j < x_conn->pass.roots[i].num_allowed_depth; j++) {
-                free(x_conn->pass.roots[i].allowed_depths[j].visuals);
+            for (uint8_t j = 0; j < x_conn->pass.roots[i].num_depth; j++) {
+                free(x_conn->pass.roots[i].depths[j].visuals);
             }
-            free(x_conn->pass.roots[i].allowed_depths);
+            free(x_conn->pass.roots[i].depths);
         }
         free(x_conn->pass.roots);
     }
@@ -170,24 +170,75 @@ void x_connect(int xfd, struct x_header *x_conn) {
                 != sizeof(struct x_screen) - 8)
             die("read");
 
-        int allowed_depths_len = x_conn->pass.roots[i].num_allowed_depth
-            * sizeof(struct x_depth);
-        if (!(x_conn->pass.roots[i].allowed_depths = malloc(allowed_depths_len)))
+        int depths_len = x_conn->pass.roots[i].num_depth * sizeof(struct x_depth);
+        if (!(x_conn->pass.roots[i].depths = malloc(depths_len)))
             die("malloc");
 
-        for (uint8_t j = 0; j < x_conn->pass.roots[i].num_allowed_depth; j++) {
-            if (read(xfd, &x_conn->pass.roots[i].allowed_depths[j], sizeof(struct x_depth) - 8)
+        for (uint8_t j = 0; j < x_conn->pass.roots[i].num_depth; j++) {
+            if (read(xfd, &x_conn->pass.roots[i].depths[j], sizeof(struct x_depth) - 8)
                     != sizeof(struct x_depth) - 8)
                 die("read");
-            int visual_len = x_conn->pass.roots[i].allowed_depths[j].num_visual
-                * sizeof(struct x_visual);
-            if (!(x_conn->pass.roots[i].allowed_depths[j].visuals = malloc(visual_len)))
+
+            int visual_len = x_conn->pass.roots[i].depths[j].num_visual * sizeof(struct x_visual);
+            if (!(x_conn->pass.roots[i].depths[j].visuals = malloc(visual_len)))
                 die("malloc");
 
-            if (read(xfd, x_conn->pass.roots[i].allowed_depths[j].visuals, visual_len) != visual_len)
+            if (read(xfd, x_conn->pass.roots[i].depths[j].visuals, visual_len) != visual_len)
                 die("read");
         }
     }
+}
+
+void x_create_window(int xfd, struct x_header *x_conn) {
+    uint32_t wid = x_conn->pass.resource_id_base;
+    struct x_screen *screen = &x_conn->pass.roots[0];
+    struct {
+        uint8_t opcode;
+        uint8_t depth;
+        uint16_t req_len;
+        uint32_t wid;
+        uint32_t parent;
+        int16_t x, y;
+        uint16_t width, height;
+        uint16_t border_width;
+        uint16_t window_class;
+        uint32_t visual;
+        uint32_t attr_mask;
+        uint32_t attr_list[2];
+    } req_create_window = {
+        .opcode = X_CreateWindow,
+        .depth = CopyFromParent,
+        .req_len = 10,
+        .wid = wid,
+        .parent = screen->root,
+        .x = 0, .y = 0,
+        .width = 150, .height = 150,
+        .border_width = 0,
+        .window_class = InputOutput,
+        .visual = screen->root_visual,
+        .attr_mask = CWBackPixel | CWEventMask,
+        .attr_list = { screen->white_pixel, KeyReleaseMask },
+    };
+
+    if (write(xfd, &req_create_window, sizeof req_create_window) != sizeof req_create_window)
+        die("write");
+}
+
+void x_map_window(int xfd, struct x_header *x_conn) {
+    uint32_t wid = x_conn->pass.resource_id_base;
+    struct {
+        uint8_t opcode;
+        uint8_t pad_1;
+        uint16_t req_len;
+        uint32_t window;
+    } req_map_window = {
+        .opcode = X_MapWindow,
+        .req_len = 2,
+        .window = wid,
+    };
+
+    if (write(xfd, &req_map_window, sizeof req_map_window) != sizeof req_map_window)
+        die("write");
 }
 
 int main() {
@@ -203,11 +254,14 @@ int main() {
     struct x_header x_conn;
     x_connect(xfd, &x_conn);
     if (x_conn.status != X_CONNECTION_OKAY) {
-        fprintf(stderr, "ERROR: can't connect to X server (%d): %s\n", x_conn.status, x_conn.fail.reason);
+        fprintf(stderr, "ERROR: can't connect to X server (%d): %.*s\n", x_conn.status,
+                x_conn.reason_len, x_conn.fail.reason);
         free_x_header(&x_conn);
         exit(1);
     }
 
-    printf("vendor: %.*s\n", x_conn.pass.vendor_len, x_conn.pass.vendor);
+    x_create_window(xfd, &x_conn);
+    x_map_window(xfd, &x_conn);
+    sleep(2);
     free_x_header(&x_conn);
 }
