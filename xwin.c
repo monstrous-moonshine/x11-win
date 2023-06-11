@@ -14,6 +14,18 @@
 #define X_CONNECTION_OKAY 1
 #define X_CONNECTION_AUTH 2
 
+#define Write(fd, buf, n) ({                      \
+        if (write(fd, buf, n) != n) die("write"); \
+    })
+#define Read(fd, buf, n) ({                     \
+        if (read(fd, buf, n) != n) die("read"); \
+    })
+#define Malloc(n) ({           \
+        void *p = malloc(n);   \
+        if (!p) die("malloc"); \
+        p;                     \
+    })
+
 void die(const char *msg) {
     perror(msg);
     exit(1);
@@ -126,66 +138,46 @@ void x_connect(int xfd, struct x_header *x_conn) {
         exit(1);
     }
 
-    if (write(xfd, &header, sizeof(header)) != sizeof(header))
-        die("write");
+    Write(xfd, &header, sizeof header);
 
     struct x_header_prefix x_conn_prefix;
-    if (read(xfd, &x_conn_prefix, 8) != 8)
-        die("read");
+    Read(xfd, &x_conn_prefix, sizeof x_conn_prefix);
 
     if (x_conn_prefix.status != X_CONNECTION_OKAY) {
-        char *reason;
-        if (!(reason = malloc(x_conn_prefix.length * 4)))
-            die("malloc");
-        if (read(xfd, reason, x_conn_prefix.length * 4) != x_conn_prefix.length * 4)
-            die("read");
+        char *reason = Malloc(x_conn_prefix.length * 4);
+        Read(xfd, reason, x_conn_prefix.length * 4);
         fprintf(stderr, "ERROR: can't connect to X server (%d): %.*s\n", x_conn_prefix.status,
                 x_conn_prefix.reason_len, reason);
         free(reason);
         exit(1);
     }
 
-    if (read(xfd, x_conn, 32) != 32)
-        die("read");
+    Read(xfd, x_conn, 32);
 
     int vendor_len = (x_conn->vendor_len + 3) / 4 * 4;
-    if (!(x_conn->vendor = malloc(vendor_len)))
-        die("malloc");
-
-    if (read(xfd, x_conn->vendor, vendor_len) != vendor_len)
-        die("read");
+    x_conn->vendor = Malloc(vendor_len);
+    Read(xfd, x_conn->vendor, vendor_len);
 
     int px_fmt_len = x_conn->num_pixmap_format * sizeof(struct pixmap_format);
-    if (!(x_conn->pixmap_formats = malloc(px_fmt_len)))
-        die("malloc");
-
-    if (read(xfd, x_conn->pixmap_formats, px_fmt_len) != px_fmt_len)
-        die("read");
+    x_conn->pixmap_formats = Malloc(px_fmt_len);
+    Read(xfd, x_conn->pixmap_formats, px_fmt_len);
 
     int screen_len = x_conn->num_screen * sizeof(struct x_screen);
-    if (!(x_conn->roots = malloc(screen_len)))
-        die("malloc");
+    x_conn->roots = Malloc(screen_len);
 
     for (uint8_t i = 0; i < x_conn->num_screen; i++) {
-        if (read(xfd, &x_conn->roots[i], sizeof(struct x_screen) - 8)
-                != sizeof(struct x_screen) - 8)
-            die("read");
+        Read(xfd, &x_conn->roots[i], sizeof(struct x_screen) - 8);
 
         int depths_len = x_conn->roots[i].num_depth * sizeof(struct x_depth);
-        if (!(x_conn->roots[i].depths = malloc(depths_len)))
-            die("malloc");
+        x_conn->roots[i].depths = Malloc(depths_len);
 
         for (uint8_t j = 0; j < x_conn->roots[i].num_depth; j++) {
-            if (read(xfd, &x_conn->roots[i].depths[j], sizeof(struct x_depth) - 8)
-                    != sizeof(struct x_depth) - 8)
-                die("read");
+            Read(xfd, &x_conn->roots[i].depths[j], sizeof(struct x_depth) - 8);
 
             int visual_len = x_conn->roots[i].depths[j].num_visual * sizeof(struct x_visual);
-            if (!(x_conn->roots[i].depths[j].visuals = malloc(visual_len)))
-                die("malloc");
+            x_conn->roots[i].depths[j].visuals = Malloc(visual_len);
 
-            if (read(xfd, x_conn->roots[i].depths[j].visuals, visual_len) != visual_len)
-                die("read");
+            Read(xfd, x_conn->roots[i].depths[j].visuals, visual_len);
         }
     }
 }
@@ -221,8 +213,7 @@ void x_create_window(int xfd, struct x_header *x_conn) {
         .attr_list = { screen->white_pixel, KeyReleaseMask },
     };
 
-    if (write(xfd, &req_create_window, sizeof req_create_window) != sizeof req_create_window)
-        die("write");
+    Write(xfd, &req_create_window, sizeof req_create_window);
 }
 
 void x_map_window(int xfd, struct x_header *x_conn) {
@@ -238,8 +229,7 @@ void x_map_window(int xfd, struct x_header *x_conn) {
         .window = wid,
     };
 
-    if (write(xfd, &req_map_window, sizeof req_map_window) != sizeof req_map_window)
-        die("write");
+    Write(xfd, &req_map_window, sizeof req_map_window);
 }
 
 int main() {
