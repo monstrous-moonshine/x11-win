@@ -6,8 +6,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <X11/X.h>
-#include <X11/Xproto.h>
+#include <X11/Xatom.h>
 #include <X11/Xauth.h>
+#include <X11/Xproto.h>
 #include "util.h"
 
 #define X_CONNECTION_FAIL 0
@@ -232,6 +233,73 @@ void x_map_window(int xfd, struct x_header *x_conn) {
     Write(xfd, &req_map_window, sizeof req_map_window);
 }
 
+uint32_t x_intern_atom(int xfd, const char *atom) {
+    int atom_len = strlen(atom);
+    int atom_len_padded = (atom_len + 3) / 4 * 4;
+    char pad[3];
+    struct {
+        uint8_t opcode;
+        uint8_t only_if_exists;
+        uint16_t req_len;
+        uint16_t name_len;
+        uint16_t pad_1;
+    } req_intern_atom = {
+        .opcode = X_InternAtom,
+        .only_if_exists = 0,
+        .req_len = 2 + atom_len_padded / 4,
+        .name_len = atom_len,
+    };
+
+    Write(xfd, &req_intern_atom, sizeof req_intern_atom);
+    Write(xfd, atom, atom_len);
+    Write(xfd, pad, atom_len_padded - atom_len);
+
+    struct {
+        uint8_t type;
+        uint8_t pad_1;
+        uint16_t seq_num;
+        uint32_t length;
+        uint32_t atom;
+        uint32_t pad_2[5];
+    } x_reply;
+
+    Read(xfd, &x_reply, sizeof x_reply);
+    return x_reply.atom;
+}
+
+void x_change_property(int xfd, struct x_header *x_conn) {
+    uint32_t wid = x_conn->resource_id_base;
+    const char title[12] = "Hello, X11!";
+    struct {
+        uint8_t opcode;
+        uint8_t mode;
+        uint16_t req_len;
+        uint32_t window;
+        uint32_t property;
+        uint32_t type;
+        uint8_t format;
+        uint8_t pad_1[3];
+        uint32_t data_len;
+        uint8_t data[12];
+    } req_change_property = {
+        .opcode = X_ChangeProperty,
+        .mode = PropModeReplace,
+        .req_len = 6 + sizeof title / 4,
+        .window = wid,
+        /* actually, it's a predefined atom (XA_WM_NAME), but
+         * we intern it here to practice another protocol request
+         * (one with a reply no less)
+         */
+        .property = x_intern_atom(xfd, "WM_NAME"),
+        .type = XA_STRING, /* "STRING" */
+        .format = 8,
+        .data_len = strlen(title),
+    };
+    strncpy((char *)req_change_property.data, title, sizeof title);
+
+    Write(xfd, &req_change_property, sizeof req_change_property);
+}
+
 int x_read_event(int xfd) {
     struct {
         char type;
@@ -300,6 +368,7 @@ int main() {
     x_connect(xfd, &x_conn);
     x_create_window(xfd, &x_conn);
     x_map_window(xfd, &x_conn);
+    x_change_property(xfd, &x_conn);
     while (!x_read_event(xfd))
         ;
     free_x_header(&x_conn);
