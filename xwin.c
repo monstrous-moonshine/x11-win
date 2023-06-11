@@ -17,13 +17,13 @@
 #define Write(fd, buf, n) ({                      \
         if (write(fd, buf, n) != n) die("write"); \
     })
-#define Read(fd, buf, n) ({                     \
-        if (read(fd, buf, n) != n) die("read"); \
+#define Read(fd, buf, n) ({                       \
+        if (read(fd, buf, n) != n) die("read");   \
     })
-#define Malloc(n) ({           \
-        void *p = malloc(n);   \
-        if (!p) die("malloc"); \
-        p;                     \
+#define Malloc(n) ({                              \
+        void *p = malloc(n);                      \
+        if (!p) die("malloc");                    \
+        p;                                        \
     })
 
 void die(const char *msg) {
@@ -246,9 +246,10 @@ int x_read_event(int xfd) {
     switch (x_reply.type) {
     case X_Error:
         printf("ERROR: error_code = %d\n", x_reply.data_1);
-        break;
+        return 1;
     case X_Reply:
         printf("INFO: reply, data_1 = %#02x\n", x_reply.data_1);
+        // read any additional data
         if (x_reply.length > 0) {
             uint8_t *tmp = Malloc(x_reply.length * 4);
             Read(xfd, tmp, x_reply.length * 4);
@@ -256,10 +257,15 @@ int x_read_event(int xfd) {
         }
         break;
     case KeyRelease:
+        // check for escape
+        // keycodes are defined in /usr/include/linux/input-event-codes.h
+        // Xorg keycodes are 8 larger than linux keycodes
         if (x_reply.data_1 == 9)
             return 1;
         break;
     case MotionNotify: {
+        // as an example of handling another event, let's print pointer
+        // coordinates on movement
         struct x_key_button_ptr {
             uint32_t pad_1;
             uint32_t time;
@@ -269,7 +275,7 @@ int x_read_event(int xfd) {
             uint8_t  same_screen;
             uint8_t  pad_2;
         } *ev = (struct x_key_button_ptr *)&x_reply;
-        printf("\rx = %d, y = %d", ev->event_x, ev->event_y);
+        printf("\rx = %4d, y = %4d", ev->event_x, ev->event_y);
         fflush(stdout);
         break;
     }
