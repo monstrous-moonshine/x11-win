@@ -310,7 +310,14 @@ int x_read_event(int xfd) {
         uint32_t data_2[6];
     } x_reply;
 
-    Read(xfd, &x_reply, sizeof x_reply);
+    int nread = read(xfd, &x_reply, sizeof x_reply);
+    if (nread != sizeof x_reply) {
+        /* check if there was an error, or we were interrupted by a signal */
+        if (nread == -1)
+            die("read");
+        else
+            return 1;
+    }
 
     switch (x_reply.type) {
     case X_Error:
