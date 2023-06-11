@@ -124,8 +124,8 @@ void x_connect(int xfd, struct x_header *x_conn) {
         char auth_proto_data[16];
     } __attribute__((packed)) header = {
         .byte_order = 'l',
-        .version_major = 11,
-        .version_minor = 0,
+        .version_major = X_PROTOCOL,
+        .version_minor = X_PROTOCOL_REVISION,
         .len_auth_proto_name = 18,
         .len_auth_proto_data = 16,
         .auth_proto_name = "MIT-MAGIC-COOKIE-1",
@@ -244,6 +244,9 @@ int x_read_event(int xfd) {
     Read(xfd, &x_reply, sizeof x_reply);
 
     switch (x_reply.type) {
+    case X_Error:
+        printf("ERROR: error_code = %d\n", x_reply.data_1);
+        break;
     case X_Reply:
         printf("INFO: reply, data_1 = %#02x\n", x_reply.data_1);
         if (x_reply.length > 0) {
@@ -251,9 +254,6 @@ int x_read_event(int xfd) {
             Read(xfd, tmp, x_reply.length * 4);
             free(tmp);
         }
-        break;
-    case X_Error:
-        printf("ERROR: error_code = %d\n", x_reply.data_1);
         break;
     case KeyRelease:
         if (x_reply.data_1 == 9)
