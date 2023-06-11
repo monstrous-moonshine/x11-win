@@ -315,15 +315,6 @@ int x_read_event(int xfd) {
     case X_Error:
         printf("ERROR: error_code = %d\n", x_reply.data_1);
         return 1;
-    case X_Reply:
-        printf("INFO: reply, data_1 = %#02x\n", x_reply.data_1);
-        // read any additional data
-        if (x_reply.length > 0) {
-            uint8_t *tmp = Malloc(x_reply.length * 4);
-            Read(xfd, tmp, x_reply.length * 4);
-            free(tmp);
-        }
-        break;
     case KeyRelease:
         // check for escape
         // keycodes are defined in /usr/include/linux/input-event-codes.h
