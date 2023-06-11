@@ -49,40 +49,36 @@ struct x_screen {
     struct x_depth *depths;
 } __attribute__((packed));
 
-struct x_header {
+struct x_header_prefix {
     uint8_t status;
     uint8_t reason_len;
     uint16_t version_major;
     uint16_t version_minor;
     uint16_t length;
-    union {
-        struct {
-            char *reason;
-        } fail;
-        struct {
-            uint32_t release_num;
-            uint32_t resource_id_base;
-            uint32_t resource_id_mask;
-            uint32_t motion_buf_size;
-            uint16_t vendor_len;
-            uint16_t max_request_len;
-            uint8_t num_screen;
-            uint8_t num_pixmap_format;
-            uint8_t image_byte_order;
-            uint8_t bitmap_bit_order;
-            uint8_t bitmap_scanline_unit;
-            uint8_t bitmap_scanline_pad;
-            uint8_t min_keycode;
-            uint8_t max_keycode;
-            uint8_t pad_1[4];
-            char *vendor;
-            struct pixmap_format *pixmap_formats;
-            struct x_screen *roots;
-        } pass;
-    };
+};
+
+struct x_header {
+    uint32_t release_num;
+    uint32_t resource_id_base;
+    uint32_t resource_id_mask;
+    uint32_t motion_buf_size;
+    uint16_t vendor_len;
+    uint16_t max_request_len;
+    uint8_t num_screen;
+    uint8_t num_pixmap_format;
+    uint8_t image_byte_order;
+    uint8_t bitmap_bit_order;
+    uint8_t bitmap_scanline_unit;
+    uint8_t bitmap_scanline_pad;
+    uint8_t min_keycode;
+    uint8_t max_keycode;
+    uint8_t pad_1[4];
+    char *vendor;
+    struct pixmap_format *pixmap_formats;
+    struct x_screen *roots;
 } __attribute__((packed));
 
-static_assert(sizeof(struct x_header) == 64, "wrong size for header");
+static_assert(sizeof(struct x_header) == 56, "wrong size for header");
 static_assert(sizeof(struct x_screen) == 48, "wrong size for header");
 static_assert(sizeof(struct x_depth) == 16, "wrong size for header");
 static_assert(sizeof(struct x_visual) == 24, "wrong size for header");

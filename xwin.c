@@ -20,19 +20,15 @@ void die(const char *msg) {
 }
 
 void free_x_header(struct x_header *x_conn) {
-    if (x_conn->status != X_CONNECTION_OKAY) {
-        free(x_conn->fail.reason);
-    } else {
-        free(x_conn->pass.vendor);
-        free(x_conn->pass.pixmap_formats);
-        for (uint8_t i = 0; i < x_conn->pass.num_screen; i++) {
-            for (uint8_t j = 0; j < x_conn->pass.roots[i].num_depth; j++) {
-                free(x_conn->pass.roots[i].depths[j].visuals);
-            }
-            free(x_conn->pass.roots[i].depths);
+    free(x_conn->vendor);
+    free(x_conn->pixmap_formats);
+    for (uint8_t i = 0; i < x_conn->num_screen; i++) {
+        for (uint8_t j = 0; j < x_conn->roots[i].num_depth; j++) {
+            free(x_conn->roots[i].depths[j].visuals);
         }
-        free(x_conn->pass.roots);
+        free(x_conn->roots[i].depths);
     }
+    free(x_conn->roots);
 }
 
 uint16_t read_short(FILE *fp) {
@@ -133,65 +129,70 @@ void x_connect(int xfd, struct x_header *x_conn) {
     if (write(xfd, &header, sizeof(header)) != sizeof(header))
         die("write");
 
-    if (read(xfd, x_conn, 8) != 8)
+    struct x_header_prefix x_conn_prefix;
+    if (read(xfd, &x_conn_prefix, 8) != 8)
         die("read");
 
-    if (x_conn->status != X_CONNECTION_OKAY) {
-        if (!(x_conn->fail.reason = malloc(x_conn->length * 4)))
+    if (x_conn_prefix.status != X_CONNECTION_OKAY) {
+        char *reason;
+        if (!(reason = malloc(x_conn_prefix.length * 4)))
             die("malloc");
-        if (read(xfd, x_conn->fail.reason, x_conn->length * 4) != x_conn->length * 4)
+        if (read(xfd, reason, x_conn_prefix.length * 4) != x_conn_prefix.length * 4)
             die("read");
-        return;
+        fprintf(stderr, "ERROR: can't connect to X server (%d): %.*s\n", x_conn_prefix.status,
+                x_conn_prefix.reason_len, reason);
+        free(reason);
+        exit(1);
     }
 
-    if (read(xfd, &x_conn->pass, 32) != 32)
+    if (read(xfd, x_conn, 32) != 32)
         die("read");
 
-    int vendor_len = (x_conn->pass.vendor_len + 3) / 4 * 4;
-    if (!(x_conn->pass.vendor = malloc(vendor_len)))
+    int vendor_len = (x_conn->vendor_len + 3) / 4 * 4;
+    if (!(x_conn->vendor = malloc(vendor_len)))
         die("malloc");
 
-    if (read(xfd, x_conn->pass.vendor, vendor_len) != vendor_len)
+    if (read(xfd, x_conn->vendor, vendor_len) != vendor_len)
         die("read");
 
-    int px_fmt_len = x_conn->pass.num_pixmap_format * sizeof(struct pixmap_format);
-    if (!(x_conn->pass.pixmap_formats = malloc(px_fmt_len)))
+    int px_fmt_len = x_conn->num_pixmap_format * sizeof(struct pixmap_format);
+    if (!(x_conn->pixmap_formats = malloc(px_fmt_len)))
         die("malloc");
 
-    if (read(xfd, x_conn->pass.pixmap_formats, px_fmt_len) != px_fmt_len)
+    if (read(xfd, x_conn->pixmap_formats, px_fmt_len) != px_fmt_len)
         die("read");
 
-    int screen_len = x_conn->pass.num_screen * sizeof(struct x_screen);
-    if (!(x_conn->pass.roots = malloc(screen_len)))
+    int screen_len = x_conn->num_screen * sizeof(struct x_screen);
+    if (!(x_conn->roots = malloc(screen_len)))
         die("malloc");
 
-    for (uint8_t i = 0; i < x_conn->pass.num_screen; i++) {
-        if (read(xfd, &x_conn->pass.roots[i], sizeof(struct x_screen) - 8)
+    for (uint8_t i = 0; i < x_conn->num_screen; i++) {
+        if (read(xfd, &x_conn->roots[i], sizeof(struct x_screen) - 8)
                 != sizeof(struct x_screen) - 8)
             die("read");
 
-        int depths_len = x_conn->pass.roots[i].num_depth * sizeof(struct x_depth);
-        if (!(x_conn->pass.roots[i].depths = malloc(depths_len)))
+        int depths_len = x_conn->roots[i].num_depth * sizeof(struct x_depth);
+        if (!(x_conn->roots[i].depths = malloc(depths_len)))
             die("malloc");
 
-        for (uint8_t j = 0; j < x_conn->pass.roots[i].num_depth; j++) {
-            if (read(xfd, &x_conn->pass.roots[i].depths[j], sizeof(struct x_depth) - 8)
+        for (uint8_t j = 0; j < x_conn->roots[i].num_depth; j++) {
+            if (read(xfd, &x_conn->roots[i].depths[j], sizeof(struct x_depth) - 8)
                     != sizeof(struct x_depth) - 8)
                 die("read");
 
-            int visual_len = x_conn->pass.roots[i].depths[j].num_visual * sizeof(struct x_visual);
-            if (!(x_conn->pass.roots[i].depths[j].visuals = malloc(visual_len)))
+            int visual_len = x_conn->roots[i].depths[j].num_visual * sizeof(struct x_visual);
+            if (!(x_conn->roots[i].depths[j].visuals = malloc(visual_len)))
                 die("malloc");
 
-            if (read(xfd, x_conn->pass.roots[i].depths[j].visuals, visual_len) != visual_len)
+            if (read(xfd, x_conn->roots[i].depths[j].visuals, visual_len) != visual_len)
                 die("read");
         }
     }
 }
 
 void x_create_window(int xfd, struct x_header *x_conn) {
-    uint32_t wid = x_conn->pass.resource_id_base;
-    struct x_screen *screen = &x_conn->pass.roots[0];
+    uint32_t wid = x_conn->resource_id_base;
+    struct x_screen *screen = &x_conn->roots[0];
     struct {
         uint8_t opcode;
         uint8_t depth;
@@ -225,7 +226,7 @@ void x_create_window(int xfd, struct x_header *x_conn) {
 }
 
 void x_map_window(int xfd, struct x_header *x_conn) {
-    uint32_t wid = x_conn->pass.resource_id_base;
+    uint32_t wid = x_conn->resource_id_base;
     struct {
         uint8_t opcode;
         uint8_t pad_1;
@@ -253,13 +254,6 @@ int main() {
         die("connect");
     struct x_header x_conn;
     x_connect(xfd, &x_conn);
-    if (x_conn.status != X_CONNECTION_OKAY) {
-        fprintf(stderr, "ERROR: can't connect to X server (%d): %.*s\n", x_conn.status,
-                x_conn.reason_len, x_conn.fail.reason);
-        free_x_header(&x_conn);
-        exit(1);
-    }
-
     x_create_window(xfd, &x_conn);
     x_map_window(xfd, &x_conn);
     sleep(2);
