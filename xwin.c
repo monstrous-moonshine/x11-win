@@ -210,7 +210,7 @@ void x_create_window(int xfd, struct x_header *x_conn) {
         .window_class = InputOutput,
         .visual = screen->root_visual,
         .attr_mask = CWBackPixel | CWEventMask,
-        .attr_list = { screen->white_pixel, KeyReleaseMask },
+        .attr_list = { screen->white_pixel, PointerMotionMask | KeyReleaseMask },
     };
 
     Write(xfd, &req_create_window, sizeof req_create_window);
@@ -232,6 +232,54 @@ void x_map_window(int xfd, struct x_header *x_conn) {
     Write(xfd, &req_map_window, sizeof req_map_window);
 }
 
+int x_read_event(int xfd) {
+    struct {
+        char type;
+        char data_1;
+        uint16_t seq_num;
+        uint32_t length;
+        uint32_t data_2[6];
+    } x_reply;
+
+    Read(xfd, &x_reply, sizeof x_reply);
+
+    switch (x_reply.type) {
+    case X_Reply:
+        printf("INFO: reply, data_1 = %#02x\n", x_reply.data_1);
+        if (x_reply.length > 0) {
+            uint8_t *tmp = Malloc(x_reply.length * 4);
+            Read(xfd, tmp, x_reply.length * 4);
+            free(tmp);
+        }
+        break;
+    case X_Error:
+        printf("ERROR: error_code = %d\n", x_reply.data_1);
+        break;
+    case KeyRelease:
+        if (x_reply.data_1 == 9)
+            return 1;
+        break;
+    case MotionNotify: {
+        struct x_key_button_ptr {
+            uint32_t pad_1;
+            uint32_t time;
+            uint32_t root, event, child;
+            uint16_t root_x, root_y, event_x, event_y;
+            uint16_t state;
+            uint8_t  same_screen;
+            uint8_t  pad_2;
+        } *ev = (struct x_key_button_ptr *)&x_reply;
+        printf("\rx = %d, y = %d", ev->event_x, ev->event_y);
+        fflush(stdout);
+        break;
+    }
+    default:
+        printf("INFO: received event, type = %d\n", x_reply.type);
+        break;
+    }
+    return 0;
+}
+
 int main() {
     int xfd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (xfd == -1)
@@ -246,6 +294,7 @@ int main() {
     x_connect(xfd, &x_conn);
     x_create_window(xfd, &x_conn);
     x_map_window(xfd, &x_conn);
-    sleep(2);
+    while (!x_read_event(xfd))
+        ;
     free_x_header(&x_conn);
 }
